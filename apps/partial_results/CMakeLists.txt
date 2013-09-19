@@ -1,0 +1,2 @@
+project(partial_results)
+add_graphlab_executable(partial_results partial_results_pagerank.cpp)
