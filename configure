@@ -170,7 +170,7 @@ fi
 
 # Extra generator setting (passed in as an argument)
 if [[ -n $ide ]]; then
-  GENERATOR="-G $ide"
+  GENERATOR="-G \"$ide\""
 fi
 if [ $no_openmp ]; then
   NO_OPENMP=true
