@@ -180,7 +180,7 @@ std::map<unsigned long, unsigned int> top_final_pageranks;
 typedef std::pair<unsigned long, unsigned int> vertex_rank;
 
 // max number of vertices to use in accuracy computation
-const int MAX_VERTICES_ACCURACY = 20;
+int MAX_VERTICES_ACCURACY = 2000;
 
 // construct top_final_pageranks from final_pageranks
 void get_top_pageranks() {
@@ -188,11 +188,13 @@ void get_top_pageranks() {
   std::vector<vertex_pagerank>,
   compare_pageranks_reversed> top_pageranks;
   for (vertex_pagerank vid_pr : final_pageranks) {
-    if (!top_pageranks.empty() && vid_pr.second <= top_pageranks.top().second) {
+    /*
+    if (top_pageranks.size() >= MAX_VERTICES_ACCURACY && vid_pr.second <= top_pageranks.top().second) {
       continue;
     }
+     */
     top_pageranks.push(vid_pr);
-    if (top_pageranks.size() > MAX_VERTICES_ACCURACY) {
+    while (top_pageranks.size() > MAX_VERTICES_ACCURACY) {
       top_pageranks.pop();
     }
   }
@@ -260,18 +262,20 @@ struct feature_aggregator : public graphlab::IS_POD_TYPE {
     context.cout() << std::setprecision(8);
     
     double ranking_mse = 0.0;
-    unsigned int rank = 0;
+    int rank = 0;
     for (vertex_pagerank vid_pr : agg.pagerank_list) {
-      unsigned int true_rank;
+      int true_rank;
       if (top_final_pageranks.find(vid_pr.first) == top_final_pageranks.end()) {
-        true_rank = top_final_pageranks.size();
+        true_rank = -1;
       } else {
         true_rank = top_final_pageranks.at(vid_pr.first);
       }
-      unsigned int rank_error = rank - true_rank;
+      int rank_error = rank - true_rank;
       ranking_mse += rank_error * rank_error;
       rank++;
     }
+    ranking_mse /= top_final_pageranks.size();
+    ranking_mse = sqrt(ranking_mse);
     
     context.cout() << "  rank mse: " << ranking_mse;
     
@@ -343,6 +347,8 @@ int main(int argc, char** argv) {
   clopts.attach_option("pagerank_prefix", pagerank_prefix,
                        "prefix of files to load true pagerank from "
                        "(for accuracy computation)");
+  clopts.attach_option("max_vertices", MAX_VERTICES_ACCURACY,
+                       "max number of vertices to use for accuracy computation");
 
   if(!clopts.parse(argc, argv)) {
     dc.cout() << "Error in parsing command line arguments." << std::endl;
