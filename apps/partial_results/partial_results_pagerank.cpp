@@ -250,18 +250,8 @@ struct feature_aggregator : public graphlab::IS_POD_TYPE {
   }
   
   static void finalize(context_type& context, feature_aggregator agg) {
-    
-    context.cout() << std::scientific << std::setprecision(4);
-    context.cout() << "[iter=" << std::setw(2) << context.iteration() << "]";
-    for (int i = 0; i < agg.num_features; i++) {
-      context.cout() << "  " + agg.feature_names[i] << ": ";
-      double normalized_feature = sqrt(agg.features[i]) / sqrt(agg.n);
-      context.cout() << normalized_feature;
-    }
-    context.cout().unsetf(std::ios::floatfield);
-    context.cout() << std::setprecision(8);
-    
-    double ranking_mse = 0.0;
+    // compute ranking error as a final features
+    double ranking_rmse = 0.0;
     int rank = 0;
     for (vertex_pagerank vid_pr : agg.pagerank_list) {
       int true_rank;
@@ -271,13 +261,23 @@ struct feature_aggregator : public graphlab::IS_POD_TYPE {
         true_rank = top_final_pageranks.at(vid_pr.first);
       }
       int rank_error = rank - true_rank;
-      ranking_mse += rank_error * rank_error;
+      ranking_rmse += rank_error * rank_error;
       rank++;
     }
-    ranking_mse /= top_final_pageranks.size();
-    ranking_mse = sqrt(ranking_mse);
+    ranking_rmse /= top_final_pageranks.size();
+    ranking_rmse = sqrt(ranking_rmse);
     
-    context.cout() << "  rank mse: " << ranking_mse;
+    context.cout() << std::scientific << std::setprecision(4);
+    context.cout() << "[iter=" << std::setw(2) << context.iteration() << "]";
+    context.cout() << "  rank rmse: " << ranking_rmse;
+    for (int i = 0; i < agg.num_features; i++) {
+      context.cout() << "  " + agg.feature_names[i] << ": ";
+      double normalized_feature = sqrt(agg.features[i]) / sqrt(agg.n);
+      context.cout() << normalized_feature;
+    }
+    context.cout().unsetf(std::ios::floatfield);
+    context.cout() << std::setprecision(8);
+    
     
     context.cout() << std::endl;
   }
