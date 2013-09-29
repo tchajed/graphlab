@@ -325,6 +325,7 @@ struct vertex_history_writer {
     std::stringstream s;
     s << v.id() << "\t";
     s << v.num_in_edges() << "\t";
+    s << v.num_out_edges() << "\t";
     double last_pagerank = 0.0;
     for (double pagerank : v.data().get_history()) {
       // print 0/1 to indicate if vertex is active
@@ -336,6 +337,7 @@ struct vertex_history_writer {
       s << pagerank << "\t";
       last_pagerank = pagerank;
     }
+    s << "\n";
     return s.str();
   }
   
@@ -504,8 +506,8 @@ int main(int argc, char** argv) {
   }
   if (!history_prefix.empty()) {
     graph.save(history_prefix, vertex_history_writer(),
-               // no gzip, save vertices, don't save edges
-               false,
+               // gzip, save vertices, don't save edges
+               true,
                true,
                false);
   }
