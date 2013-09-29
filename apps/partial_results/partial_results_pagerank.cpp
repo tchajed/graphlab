@@ -9,6 +9,8 @@
 #include <graphlab.hpp>
 // #include <graphlab/macros_def.hpp>
 
+#include "vertex_collector.h"
+
 // Global random reset probability
 double RESET_PROB = 0.15;
 
@@ -58,7 +60,6 @@ typedef graphlab::empty edge_data_type;
 
 // The graph type is determined by the vertex and edge data types
 typedef graphlab::distributed_graph<vertex_data_type, edge_data_type> graph_type;
-
 
 /*
  * A simple function used by graph.transform_vertices(init_vertex);
@@ -188,11 +189,10 @@ void get_top_pageranks() {
   std::vector<vertex_pagerank>,
   compare_pageranks_reversed> top_pageranks;
   for (vertex_pagerank vid_pr : final_pageranks) {
-    /*
-    if (top_pageranks.size() >= MAX_VERTICES_ACCURACY && vid_pr.second <= top_pageranks.top().second) {
+    if (top_pageranks.size() >= MAX_VERTICES_ACCURACY &&
+        vid_pr.second <= top_pageranks.top().second) {
       continue;
     }
-     */
     top_pageranks.push(vid_pr);
     while (top_pageranks.size() > MAX_VERTICES_ACCURACY) {
       top_pageranks.pop();
@@ -267,11 +267,11 @@ struct feature_aggregator : public graphlab::IS_POD_TYPE {
     ranking_rmse /= top_final_pageranks.size();
     ranking_rmse = sqrt(ranking_rmse);
     
-    context.cout() << std::scientific << std::setprecision(4);
+    context.cout() << std::scientific << std::setprecision(3);
     context.cout() << "[iter=" << std::setw(2) << context.iteration() << "]";
-    context.cout() << "  rank rmse: " << ranking_rmse;
+    context.cout() << " rank_e: " << ranking_rmse;
     for (int i = 0; i < agg.num_features; i++) {
-      context.cout() << "  " + agg.feature_names[i] << ": ";
+      context.cout() << " " + agg.feature_names[i] << ": ";
       double normalized_feature = sqrt(agg.features[i]) / sqrt(agg.n);
       context.cout() << normalized_feature;
     }
@@ -285,6 +285,59 @@ struct feature_aggregator : public graphlab::IS_POD_TYPE {
 
 const std::string feature_aggregator::feature_names[] =
   {"rmse", "d/di", "size", "d^2/di^2"};
+
+typedef vertex_collector<pagerank, graph_type> vcollector_type;
+struct vertex_info : graphlab::IS_POD_TYPE {
+  unsigned long vid;
+  double pagerank;
+  int in_edges;
+  bool is_active;
+};
+
+static std::vector< std::vector<vertex_info> > vertex_features;
+
+void finalize_vcollector(pagerank::icontext_type& context,
+                         vcollector_type coll) {
+  context.cout() << "finalizing vcollector" << std::endl;
+  std::vector<vertex_info> infos;
+  for (std::pair<unsigned long, vcollector_type::vertex_info> vertex : coll.get_features()) {
+    vertex_info info;
+    info.vid = vertex.first;
+    diff_vertex data = vertex.second.data;
+    info.pagerank = data.value;
+    //info.in_edges = vertex.second.in_edges;
+    info.in_edges = 0;
+    info.is_active = std::fabs(data.get_diff()) < TOLERANCE;
+    infos.push_back(info);
+  }
+  vertex_features.push_back(infos);
+}
+
+void save_features(std::string fname) {
+  std::ofstream f(fname.c_str(), std::ios_base::out);
+  f << "[";
+  for (int i = 0; i < vertex_features.size(); i++) {
+    auto feature_row = vertex_features[i];
+    f << "[";
+    for (int j = 0; j < feature_row.size(); j++) {
+      vertex_info info = feature_row[j];
+      f << "{";
+      f << "vid:" << info.vid << ",\n";
+      f << "pagerank:" << info.pagerank << ",\n";
+      f << "in_edges:" << info.in_edges << ",\n";
+      f << "is_active:" << (info.is_active ? "true" : "false") << "\n";
+      f << "}";
+      if (j != feature_row.size() - 1) {
+        f << ",\n";
+      }
+    }
+    f << "]";
+    if (i != vertex_features.size() - 1) {
+      f << ",\n";
+    }
+  }
+  f << "]";
+}
 
 /*
  * We want to save the final graph so we define a write which will be
@@ -434,14 +487,14 @@ int main(int argc, char** argv) {
                                                    feature_aggregator::map,
                                                    feature_aggregator::finalize);
   engine.aggregate_periodic("feature_calculation", feature_period);
+  
+  engine.add_vertex_aggregator<vcollector_type>("vertex_collection",
+                                                vcollector_type::map,
+                                                finalize_vcollector);
+  engine.aggregate_periodic("vertex_collection", 0);
+  
   engine.signal_all();
   engine.start();
-  // can map_reduce all vertices to compute global convergence
-  // statistics can also register aggregators that run periodically
-  // (in seconds) or when requested
-  // (http://localhost:8000/classgraphlab_1_1iengine.html#a39c802e7271358becf2cf2b2418b943a)
-  // hack to run one iteration: start the engine with the command line
-  // option max iterations == 1 or 2
   const double runtime = engine.elapsed_seconds();
   dc.cout() << "Finished Running engine in " << runtime
             << " seconds." << std::endl;
@@ -457,6 +510,8 @@ int main(int argc, char** argv) {
 
   double totalpr = graph.map_reduce_vertices<double>(pagerank_sum);
   std::cout << "Totalpr = " << totalpr << "\n";
+  
+  save_features("vertices.json");
   
   // Tear-down communication layer and quit -----------------------------------
   graphlab::mpi_tools::finalize();
