@@ -9,8 +9,6 @@
 #include <graphlab.hpp>
 // #include <graphlab/macros_def.hpp>
 
-#include "vertex_collector.h"
-
 // Global random reset probability
 double RESET_PROB = 0.15;
 
@@ -22,32 +20,55 @@ bool USE_DELTA_CACHE = false;
 
 struct diff_vertex : public graphlab::IS_POD_TYPE {
 private:
-  double last_diff;
-  double second_diff;
+  std::vector< std::pair<int, double> > values;
   
 public:
-  double value;
-  
   diff_vertex() {
-    last_diff = 0.0;
-    second_diff = 0.0;
-    value = 0.0;
   }
   
-  double set_value(double new_value) {
-    double new_diff = new_value - value;
-    second_diff = new_diff - last_diff;
-    last_diff = new_diff;
-    value = new_value;
-    return last_diff;
+  double set_value(int iteration, double new_value) {
+    values.push_back(std::pair<int, double>(iteration, new_value));
+    return get_diff();
+  }
+  
+  double get_value() const {
+    return values.back().second;
   }
   
   double get_diff() const {
-    return last_diff;
+    size_t n = values.size();
+    if (n <= 1) {
+      return 0.0;
+    }
+    return values[n - 1].second - values[n - 2].second;
   }
   
   double get_second_diff() const {
-    return second_diff;
+    size_t n = values.size();
+    if (n <= 2) {
+      if (n <= 1) {
+        return 0.0;
+      }
+      return get_diff();
+    }
+    return values[n - 1].second - 2*values[n - 2].second + values[n - 3].second;
+  }
+  
+  std::vector<double> get_history() const {
+    std::vector<double> pageranks;
+    int last_iteration = -1;
+    for (std::pair<int, double> iteration_value : values) {
+      int repetitions = 1;
+      if (last_iteration != -1) {
+        repetitions = iteration_value.first - last_iteration;
+        ASSERT_TRUE(repetitions > 0);
+      }
+      for (int i = 0; i < repetitions; i++) {
+        pageranks.push_back(iteration_value.second);
+      }
+      last_iteration = iteration_value.first;
+    }
+    return pageranks;
   }
 };
 
@@ -66,7 +87,7 @@ typedef graphlab::distributed_graph<vertex_data_type, edge_data_type> graph_type
  * to initialize the vertes data.
  */
 void init_vertex(graph_type::vertex_type& vertex) {
-  vertex.data().set_value(1.0);
+  vertex.data().set_value(-1, 1.0);
 }
 
 
@@ -108,7 +129,7 @@ public:
   /* Gather the weighted rank of the adjacent page   */
   double gather(icontext_type& context, const vertex_type& vertex,
                edge_type& edge) const {
-    return (edge.source().data().value / edge.source().num_out_edges());
+    return (edge.source().data().get_value() / edge.source().num_out_edges());
   }
 
   /* Use the total rank of adjacent pages to update this page */
@@ -116,7 +137,7 @@ public:
              const gather_type& total) {
 
     const double newval = (1.0 - RESET_PROB) * total + RESET_PROB;
-    last_change = vertex.data().set_value(newval);
+    last_change = vertex.data().set_value(context.iteration(), newval);
     if (ITERATIONS) context.signal(vertex);
   }
 
@@ -181,7 +202,7 @@ std::map<unsigned long, unsigned int> top_final_pageranks;
 typedef std::pair<unsigned long, unsigned int> vertex_rank;
 
 // max number of vertices to use in accuracy computation
-int MAX_VERTICES_ACCURACY = 2000;
+int MAX_VERTICES_ACCURACY = 1000;
 
 // construct top_final_pageranks from final_pageranks
 void get_top_pageranks() {
@@ -235,12 +256,12 @@ struct feature_aggregator : public graphlab::IS_POD_TYPE {
       agg.features[0] = 0.0;
     } else {
       double true_pagerank = final_pageranks.at(vertex.id());
-      agg.features[0] = vertex.data().value - true_pagerank;
+      agg.features[0] = vertex.data().get_value() - true_pagerank;
     }
     agg.features[1] = vertex.data().get_diff();
-    agg.features[2] = vertex.data().value;
+    agg.features[2] = vertex.data().get_value();
     agg.features[3] = vertex.data().get_second_diff();
-    agg.pagerank_list.insert(vertex_pagerank(vertex.id(), vertex.data().value));
+    agg.pagerank_list.insert(vertex_pagerank(vertex.id(), vertex.data().get_value()));
     // square features
     for (int i = 0; i < num_features; i++) {
       agg.features[i] *= agg.features[i];
@@ -286,59 +307,6 @@ struct feature_aggregator : public graphlab::IS_POD_TYPE {
 const std::string feature_aggregator::feature_names[] =
   {"rmse", "d/di", "size", "d^2/di^2"};
 
-typedef vertex_collector<pagerank, graph_type> vcollector_type;
-struct vertex_info : graphlab::IS_POD_TYPE {
-  unsigned long vid;
-  double pagerank;
-  int in_edges;
-  bool is_active;
-};
-
-static std::vector< std::vector<vertex_info> > vertex_features;
-
-void finalize_vcollector(pagerank::icontext_type& context,
-                         vcollector_type coll) {
-  context.cout() << "finalizing vcollector" << std::endl;
-  std::vector<vertex_info> infos;
-  for (std::pair<unsigned long, vcollector_type::vertex_info> vertex : coll.get_features()) {
-    vertex_info info;
-    info.vid = vertex.first;
-    diff_vertex data = vertex.second.data;
-    info.pagerank = data.value;
-    //info.in_edges = vertex.second.in_edges;
-    info.in_edges = 0;
-    info.is_active = std::fabs(data.get_diff()) < TOLERANCE;
-    infos.push_back(info);
-  }
-  vertex_features.push_back(infos);
-}
-
-void save_features(std::string fname) {
-  std::ofstream f(fname.c_str(), std::ios_base::out);
-  f << "[";
-  for (int i = 0; i < vertex_features.size(); i++) {
-    auto feature_row = vertex_features[i];
-    f << "[";
-    for (int j = 0; j < feature_row.size(); j++) {
-      vertex_info info = feature_row[j];
-      f << "{";
-      f << "vid:" << info.vid << ",\n";
-      f << "pagerank:" << info.pagerank << ",\n";
-      f << "in_edges:" << info.in_edges << ",\n";
-      f << "is_active:" << (info.is_active ? "true" : "false") << "\n";
-      f << "}";
-      if (j != feature_row.size() - 1) {
-        f << ",\n";
-      }
-    }
-    f << "]";
-    if (i != vertex_features.size() - 1) {
-      f << ",\n";
-    }
-  }
-  f << "]";
-}
-
 /*
  * We want to save the final graph so we define a write which will be
  * used in graph.save("path/prefix", pagerank_writer()) to save the graph.
@@ -346,15 +314,36 @@ void save_features(std::string fname) {
 struct pagerank_writer {
   std::string save_vertex(graph_type::vertex_type v) {
     std::stringstream strm;
-    strm << v.id() << "\t" << v.data().value << "\n";
+    strm << v.id() << "\t" << v.data().get_value() << "\n";
     return strm.str();
   }
   std::string save_edge(graph_type::edge_type e) { return ""; }
 }; // end of pagerank writer
 
+struct vertex_history_writer {
+  std::string save_vertex(graph_type::vertex_type v) {
+    std::stringstream s;
+    s << v.id() << "\t";
+    s << v.num_in_edges() << "\t";
+    double last_pagerank = 0.0;
+    for (double pagerank : v.data().get_history()) {
+      // print 0/1 to indicate if vertex is active
+      if (std::fabs(pagerank - last_pagerank) < TOLERANCE) {
+        s << "0\t";
+      } else {
+        s << "1\t";
+      }
+      s << pagerank << "\t";
+      last_pagerank = pagerank;
+    }
+    return s.str();
+  }
+  
+  std::string save_edge(graph_type::edge_type e) { return ""; }
+};
 
 double pagerank_sum(graph_type::vertex_type v) {
-  return v.data().value;
+  return v.data().get_value();
 }
 
 int main(int argc, char** argv) {
@@ -393,13 +382,16 @@ int main(int argc, char** argv) {
   clopts.attach_option("saveprefix", saveprefix,
                        "If set, will save the resultant pagerank to a "
                        "sequence of files with prefix saveprefix");
-  double feature_period = 0.2;
+  double feature_period = 0.5;
   clopts.attach_option("feature_period", feature_period,
                        "how frequently to compute features");
   std::string pagerank_prefix;
   clopts.attach_option("pagerank_prefix", pagerank_prefix,
                        "prefix of files to load true pagerank from "
                        "(for accuracy computation)");
+  std::string history_prefix;
+  clopts.attach_option("history_prefix", history_prefix,
+                       "prefix of files to save full vertex history to");
   clopts.attach_option("max_vertices", MAX_VERTICES_ACCURACY,
                        "max number of vertices to use for accuracy computation");
 
@@ -465,6 +457,10 @@ int main(int argc, char** argv) {
       std::ifstream in_file(file.c_str(),
                             std::ios_base::in | std::ios_base::binary);
       boost::iostreams::filtering_stream<boost::iostreams::input> fin;
+      const bool gzip = boost::ends_with(file, ".gz");
+      if (gzip) {
+        fin.push(boost::iostreams::gzip_decompressor());
+      }
       fin.push(in_file);
       while (fin.good() && !fin.eof()) {
         unsigned long int vid;
@@ -472,6 +468,10 @@ int main(int argc, char** argv) {
         fin >> vid;
         fin >> pagerank;
         final_pageranks.insert(pagerank_pair(vid, pagerank));
+      }
+      fin.pop();
+      if (gzip) {
+        fin.pop();
       }
     }
     get_top_pageranks();
@@ -488,11 +488,6 @@ int main(int argc, char** argv) {
                                                    feature_aggregator::finalize);
   engine.aggregate_periodic("feature_calculation", feature_period);
   
-  engine.add_vertex_aggregator<vcollector_type>("vertex_collection",
-                                                vcollector_type::map,
-                                                finalize_vcollector);
-  engine.aggregate_periodic("vertex_collection", 0);
-  
   engine.signal_all();
   engine.start();
   const double runtime = engine.elapsed_seconds();
@@ -501,17 +496,22 @@ int main(int argc, char** argv) {
 
 
   // Save the final graph -----------------------------------------------------
-  if (saveprefix != "") {
+  if (!saveprefix.empty()) {
     graph.save(saveprefix, pagerank_writer(),
-               false,    // do not gzip
+               true,     // gzip
                true,     // save vertices
                false);   // do not save edges
   }
-
+  if (!history_prefix.empty()) {
+    graph.save(history_prefix, vertex_history_writer(),
+               // no gzip, save vertices, don't save edges
+               false,
+               true,
+               false);
+  }
+  
   double totalpr = graph.map_reduce_vertices<double>(pagerank_sum);
   std::cout << "Totalpr = " << totalpr << "\n";
-  
-  save_features("vertices.json");
   
   // Tear-down communication layer and quit -----------------------------------
   graphlab::mpi_tools::finalize();
