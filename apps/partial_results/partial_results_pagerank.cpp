@@ -57,7 +57,8 @@ public:
   std::vector<double> get_history() const {
     std::vector<double> pageranks;
     int last_iteration = -1;
-    for (std::pair<int, double> iteration_value : values) {
+    for (std::vector<std::pair<int, double> >::const_iterator it = values.begin(); it != values.end(); ++it) {
+      std::pair<int, double> iteration_value = *it;
       int repetitions = 1;
       if (last_iteration != -1) {
         repetitions = iteration_value.first - last_iteration;
@@ -209,7 +210,9 @@ void get_top_pageranks() {
   std::priority_queue<vertex_pagerank,
   std::vector<vertex_pagerank>,
   compare_pageranks_reversed> top_pageranks;
-  for (vertex_pagerank vid_pr : final_pageranks) {
+  for (std::map<unsigned long, double>::const_iterator it =
+    final_pageranks.begin(); it != final_pageranks.end(); ++it) {
+    std::pair<unsigned long, double> vid_pr = *it;
     if (top_pageranks.size() >= MAX_VERTICES_ACCURACY &&
         vid_pr.second <= top_pageranks.top().second) {
       continue;
@@ -274,7 +277,9 @@ struct feature_aggregator : public graphlab::IS_POD_TYPE {
     // compute ranking error as a final features
     double ranking_rmse = 0.0;
     int rank = 0;
-    for (vertex_pagerank vid_pr : agg.pagerank_list) {
+    for (std::set<vertex_pagerank>::const_iterator it =
+      agg.pagerank_list.begin(); it != agg.pagerank_list.end(); ++it) {
+      vertex_pagerank vid_pr = *it;
       int true_rank;
       if (top_final_pageranks.find(vid_pr.first) == top_final_pageranks.end()) {
         true_rank = -1;
@@ -327,7 +332,10 @@ struct vertex_history_writer {
     s << v.num_in_edges() << "\t";
     s << v.num_out_edges() << "\t";
     double last_pagerank = 0.0;
-    for (double pagerank : v.data().get_history()) {
+    std::vector<double> history = v.data().get_history();
+    for (std::vector<double>::const_iterator it =
+      history.begin(); it != history.end(); ++it) {
+      double pagerank = *it;
       // print 0/1 to indicate if vertex is active
       if (std::fabs(pagerank - last_pagerank) < TOLERANCE) {
         s << "0\t";
@@ -455,7 +463,9 @@ int main(int argc, char** argv) {
     std::vector<std::string> pagerank_files;
     graphlab::fs_util::list_files_with_prefix(directory_name,
                                               search_prefix, pagerank_files);
-    for (std::string file : pagerank_files) {
+    for (std::vector<std::string>::const_iterator it =
+         pagerank_files.begin(); it !=pagerank_files.end(); ++it) {
+      std::string file = *it;
       std::ifstream in_file(file.c_str(),
                             std::ios_base::in | std::ios_base::binary);
       boost::iostreams::filtering_stream<boost::iostreams::input> fin;
