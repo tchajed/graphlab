@@ -18,6 +18,9 @@ size_t ITERATIONS = 0;
 
 bool USE_DELTA_CACHE = false;
 
+std::ofstream FEATURES_FILE;
+const std::string FEATURES_FILE_DELIMITER = ",";
+
 struct diff_vertex : public graphlab::IS_POD_TYPE {
 private:
   std::vector< std::pair<int, double> > values;
@@ -303,9 +306,19 @@ struct feature_aggregator : public graphlab::IS_POD_TYPE {
     }
     context.cout().unsetf(std::ios::floatfield);
     context.cout() << std::setprecision(8);
-    
-    
     context.cout() << std::endl;
+    
+    if (FEATURES_FILE.is_open()) {
+      FEATURES_FILE << context.iteration() << FEATURES_FILE_DELIMITER;
+      FEATURES_FILE << ranking_rmse << FEATURES_FILE_DELIMITER;
+      for (int i = 0; i < agg.num_features; i++) {
+        FEATURES_FILE << sqrt(agg.features[i]) / sqrt(agg.n);
+        if (i != agg.num_features - 1) {
+          FEATURES_FILE << FEATURES_FILE_DELIMITER;
+        }
+      }
+      FEATURES_FILE << "\n";
+    }
   }
 };
 
@@ -404,6 +417,9 @@ int main(int argc, char** argv) {
                        "prefix of files to save full vertex history to");
   clopts.attach_option("max_vertices", MAX_VERTICES_ACCURACY,
                        "max number of vertices to use for accuracy computation");
+  std::string features_fname;
+  clopts.attach_option("features_fname", features_fname,
+                       "filename to save feature csv to");
 
   if(!clopts.parse(argc, argv)) {
     dc.cout() << "Error in parsing command line arguments." << std::endl;
@@ -490,6 +506,16 @@ int main(int argc, char** argv) {
     dc.cerr() << "total pageranks loaded: " << final_pageranks.size() << std::endl;
   }
   
+  // Prepare feature output file
+  if (!features_fname.empty()) {
+    FEATURES_FILE.open(features_fname.c_str(), std::ios::trunc);
+    FEATURES_FILE << "iter" << ",rank_e";
+    for (int i = 0; i < feature_aggregator::num_features; i++) {
+      FEATURES_FILE << FEATURES_FILE_DELIMITER << feature_aggregator::feature_names[i];
+    }
+    FEATURES_FILE << std::endl;
+  }
+  
   // Initialize the vertex data
   graph.transform_vertices(init_vertex);
 
@@ -524,6 +550,10 @@ int main(int argc, char** argv) {
   
   double totalpr = graph.map_reduce_vertices<double>(pagerank_sum);
   std::cout << "Totalpr = " << totalpr << "\n";
+  
+  if (FEATURES_FILE.is_open()) {
+    FEATURES_FILE.close();
+  }
   
   // Tear-down communication layer and quit -----------------------------------
   graphlab::mpi_tools::finalize();

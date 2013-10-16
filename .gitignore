@@ -4,6 +4,7 @@ syntax: glob
 *~
 debug/*
 release/*
+xcode-build/*
 profile/*
 dist/graphlabapi*
 doc/doxygen/*
