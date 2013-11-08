@@ -21,56 +21,65 @@ bool USE_DELTA_CACHE = false;
 std::ofstream FEATURES_FILE;
 const std::string FEATURES_FILE_DELIMITER = ",";
 
+struct iteration_value : public graphlab::IS_POD_TYPE {
+  int iteration;
+  double value;
+  
+  iteration_value(int iteration_, double value_) : iteration(iteration_), value(value_) {
+  }
+};
+
 struct diff_vertex : public graphlab::IS_POD_TYPE {
 private:
-  std::vector< std::pair<int, double> > values;
+  std::vector<iteration_value> iteration_values;
   
 public:
   diff_vertex() {
   }
   
   double set_value(int iteration, double new_value) {
-    values.push_back(std::pair<int, double>(iteration, new_value));
+    iteration_values.push_back(iteration_value(iteration, new_value));
     return get_diff();
   }
   
   double get_value() const {
-    return values.back().second;
+    return iteration_values.back().value;
   }
   
   double get_diff() const {
-    size_t n = values.size();
+    size_t n = iteration_values.size();
     if (n <= 1) {
       return 0.0;
     }
-    return values[n - 1].second - values[n - 2].second;
+    return iteration_values[n - 1].value - iteration_values[n - 2].value;
   }
   
   double get_second_diff() const {
-    size_t n = values.size();
+    size_t n = iteration_values.size();
     if (n <= 2) {
       if (n <= 1) {
         return 0.0;
       }
       return get_diff();
     }
-    return values[n - 1].second - 2*values[n - 2].second + values[n - 3].second;
+    return iteration_values[n - 1].value - 2*iteration_values[n - 2].value + iteration_values[n - 3].value;
   }
   
   std::vector<double> get_history() const {
     std::vector<double> pageranks;
     int last_iteration = -1;
-    for (std::vector<std::pair<int, double> >::const_iterator it = values.begin(); it != values.end(); ++it) {
-      std::pair<int, double> iteration_value = *it;
+    for (std::vector<iteration_value>::const_iterator it = iteration_values.begin(); it != iteration_values.end(); ++it) {
+      int iteration = it->iteration;
+      double value = it->value;
       int repetitions = 1;
       if (last_iteration != -1) {
-        repetitions = iteration_value.first - last_iteration;
+        repetitions = iteration - last_iteration;
         ASSERT_TRUE(repetitions > 0);
       }
       for (int i = 0; i < repetitions; i++) {
-        pageranks.push_back(iteration_value.second);
+        pageranks.push_back(value);
       }
-      last_iteration = iteration_value.first;
+      last_iteration = iteration;
     }
     return pageranks;
   }
