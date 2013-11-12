@@ -27,13 +27,14 @@ struct iteration_value : public graphlab::IS_POD_TYPE {
   
   iteration_value(int iteration_, double value_) : iteration(iteration_), value(value_) {
   }
+  
+  iteration_value() : iteration(0), value(0.0) {
+  }
 };
 
-struct diff_vertex : public graphlab::IS_POD_TYPE {
-private:
+struct diff_vertex {
   std::vector<iteration_value> iteration_values;
   
-public:
   diff_vertex() {
   }
   
@@ -83,6 +84,24 @@ public:
     }
     return pageranks;
   }
+  
+  void save(graphlab::oarchive& oarc) const {
+    oarc << iteration_values.size();
+    for (std::vector<iteration_value>::const_iterator it = iteration_values.begin(); it != iteration_values.end(); ++it) {
+      oarc << *it;
+    }
+  }
+  
+  void load(graphlab::iarchive& iarc) {
+    size_t n;
+    iarc >> n;
+    for (unsigned int i = 0; i < n; i++) {
+      iteration_value v;
+      iarc >> v;
+      iteration_values.push_back(v);
+    }
+  }
+  
 };
 
 
@@ -215,7 +234,7 @@ std::map<unsigned long, unsigned int> top_final_pageranks;
 typedef std::pair<unsigned long, unsigned int> vertex_rank;
 
 // max number of vertices to use in accuracy computation
-int MAX_VERTICES_ACCURACY = 1000;
+unsigned int MAX_VERTICES_ACCURACY = 1000;
 
 // construct top_final_pageranks from final_pageranks
 void get_top_pageranks() {
@@ -243,7 +262,7 @@ void get_top_pageranks() {
   }
 }
 
-struct feature_aggregator : public graphlab::IS_POD_TYPE {
+struct feature_aggregator {
   typedef pagerank::icontext_type context_type;
   double features[4];
   std::set<vertex_pagerank, compare_pageranks> pagerank_list;
@@ -327,6 +346,29 @@ struct feature_aggregator : public graphlab::IS_POD_TYPE {
         }
       }
       FEATURES_FILE << "\n";
+    }
+  }
+  
+  void save(graphlab::oarchive& oarc) const {
+    for (int i = 0; i < num_features; i++) {
+      oarc << features[i];
+    }
+    oarc << pagerank_list.size();
+    for (std::set<vertex_pagerank>::const_iterator it = pagerank_list.begin(); it != pagerank_list.end(); ++it) {
+      oarc << *it;
+    }
+  }
+  
+  void load(graphlab::iarchive& iarc) {
+     for (int i = 0; i < num_features; i++) {
+       iarc >> features[i];
+     }
+    size_t n;
+    iarc >> n;
+    for (int i = 0; i < n; i++) {
+      vertex_pagerank vp;
+      iarc >> vp;
+      pagerank_list.insert(vp);
     }
   }
 };
