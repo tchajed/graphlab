@@ -552,7 +552,11 @@ int main(int argc, char** argv) {
       }
     }
     get_top_pageranks();
-    dc.cerr() << "total pageranks loaded: " << final_pageranks.size() << std::endl;
+    logstream(LOG_INFO) << "total pageranks loaded: " << final_pageranks.size() << std::endl;
+    if (graph.num_vertices() != final_pageranks.size()) {
+      logstream(LOG_WARNING) << "pageranks loaded (" << final_pageranks.size() << ") != graph size, discarding pageranks" << std::endl;
+      final_pageranks.clear();
+    }
   }
   
   // Prepare feature output file
@@ -591,6 +595,7 @@ int main(int argc, char** argv) {
                true,     // save vertices
                false);   // do not save edges
   }
+  
   if (!history_prefix.empty()) {
     graph.save(history_prefix, vertex_history_writer(),
                // gzip, save vertices, don't save edges
