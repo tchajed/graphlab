@@ -5,6 +5,7 @@
 #include <vector>
 #include <string>
 #include <fstream>
+#include <sys/time.h>
 
 #include <graphlab.hpp>
 // #include <graphlab/macros_def.hpp>
@@ -13,10 +14,6 @@
 double RESET_PROB = 0.15;
 
 double TOLERANCE = 1.0E-2;
-
-size_t ITERATIONS = 0;
-
-bool USE_DELTA_CACHE = false;
 
 std::ofstream FEATURES_FILE;
 const std::string FEATURES_FILE_DELIMITER = ",";
@@ -170,17 +167,14 @@ public:
 
     const double newval = (1.0 - RESET_PROB) * total + RESET_PROB;
     last_change = vertex.data().set_value(context.iteration(), newval);
-    if (ITERATIONS) context.signal(vertex);
   }
 
   /* The scatter edges depend on whether the pagerank has converged */
   edge_dir_type scatter_edges(icontext_type& context,
                               const vertex_type& vertex) const {
-    // If an iteration counter is set then
-    if (ITERATIONS) return graphlab::NO_EDGES;
-    // In the dynamic case we run scatter on out edges if the we need
-    // to maintain the delta cache or the tolerance is above bound.
-    if(USE_DELTA_CACHE || std::fabs(last_change) > TOLERANCE ) {
+    // In the dynamic case we run scatter on out edges if the
+    // tolerance is above bound.
+    if(std::fabs(last_change) > TOLERANCE ) {
       return graphlab::OUT_EDGES;
     } else {
       return graphlab::NO_EDGES;
@@ -190,26 +184,17 @@ public:
   /* The scatter function just signal adjacent pages */
   void scatter(icontext_type& context, const vertex_type& vertex,
                edge_type& edge) const {
-    if(USE_DELTA_CACHE) {
-      context.post_delta(edge.target(), last_change);
-    }
-
     if(last_change > TOLERANCE || last_change < -TOLERANCE) {
         context.signal(edge.target());
     } else {
-      context.signal(edge.target()); //, std::fabs(last_change));
+      context.signal(edge.target());
     }
   }
 
   void save(graphlab::oarchive& oarc) const {
-    // If we are using iterations as a counter then we do not need to
-    // move the last change in the vertex program along with the
-    // vertex data.
-    if (ITERATIONS == 0) oarc << last_change;
   }
 
   void load(graphlab::iarchive& iarc) {
-    if (ITERATIONS == 0) iarc >> last_change;
   }
 
 }; // end of factorized_pagerank update functor
@@ -373,6 +358,39 @@ struct feature_aggregator {
   }
 };
 
+class performance_monitor {
+private:
+  graphlab::timer timer;
+  std::map<std::string, double> start_times;
+  std::map<std::string, double> finish_times;
+public:
+  performance_monitor() {
+    timer.start();
+  }
+  
+  void start(std::string name) {
+    start_times.insert(std::pair<std::string, double>(name, timer.current_time()));
+  }
+  
+  double finish(const std::string name) {
+    std::map<std::string, double>::iterator start_time = start_times.find(name);
+    assert(start_time != start_times.end() && "can only finish intervals that have been started");
+    double time = timer.current_time() - start_time->second;
+    finish_times.insert(std::pair<std::string, double>(name, time));
+    start_times.erase(start_time);
+    return time;
+  }
+  
+  void write_times(std::ostream &os) const {
+    for (std::map<std::string, double>::const_iterator it = finish_times.begin(); it != finish_times.end(); ++it) {
+      std::string name = it->first;
+      double time = it->second;
+      os << name << "\t" << time << std::endl;
+    }
+    os << "total" << "\t" << timer.current_time() << std::endl;
+  }
+};
+
 const std::string feature_aggregator::feature_names[] =
   {"rmse", "d/di", "size", "d^2/di^2"};
 
@@ -421,6 +439,7 @@ double pagerank_sum(graph_type::vertex_type v) {
 }
 
 int main(int argc, char** argv) {
+  performance_monitor timer;
   // Initialize control plain using mpi
   graphlab::mpi_tools::init(argc, argv);
   graphlab::distributed_control dc;
@@ -429,85 +448,55 @@ int main(int argc, char** argv) {
   // Parse command line options -----------------------------------------------
   graphlab::command_line_options clopts("PageRank algorithm.");
   std::string graph_dir;
-  std::string format = "adj";
+  std::string format = "snap";
   std::string exec_type = "synchronous";
   clopts.attach_option("graph", graph_dir,
-                       "The graph file.  If none is provided "
-                       "then a toy graph will be created");
+                       "The graph prefix.");
   clopts.add_positional("graph");
+   clopts.attach_option("format", format,
+                        "The graph file format");
   clopts.attach_option("engine", exec_type,
-                       "The engine type synchronous or asynchronous");
+                       "The engine type: synchronous or asynchronous");
   clopts.attach_option("tol", TOLERANCE,
                        "The permissible change at convergence.");
-  clopts.attach_option("format", format,
-                       "The graph file format");
-  size_t powerlaw = 0;
-  clopts.attach_option("powerlaw", powerlaw,
-                       "Generate a synthetic powerlaw out-degree graph. ");
-  clopts.attach_option("iterations", ITERATIONS,
-                       "If set, will force the use of the synchronous engine"
-                       "overriding any engine option set by the --engine parameter. "
-                       "Runs complete (non-dynamic) PageRank for a fixed "
-                       "number of iterations. Also overrides the iterations "
-                       "option in the engine");
-  clopts.attach_option("use_delta", USE_DELTA_CACHE,
-                       "Use the delta cache to reduce time in gather.");
-  std::string saveprefix;
-  clopts.attach_option("saveprefix", saveprefix,
-                       "If set, will save the resultant pagerank to a "
-                       "sequence of files with prefix saveprefix");
   double feature_period = 0.5;
   clopts.attach_option("feature_period", feature_period,
                        "how frequently to compute features");
-  std::string pagerank_prefix;
-  clopts.attach_option("pagerank_prefix", pagerank_prefix,
-                       "prefix of files to load true pagerank from "
-                       "(for accuracy computation)");
-  std::string history_prefix;
-  clopts.attach_option("history_prefix", history_prefix,
-                       "prefix of files to save full vertex history to");
-  clopts.attach_option("max_vertices", MAX_VERTICES_ACCURACY,
-                       "max number of vertices to use for accuracy computation");
-  std::string features_fname;
-  clopts.attach_option("features_fname", features_fname,
-                       "filename to save feature csv to");
+   clopts.attach_option("max_vertices", MAX_VERTICES_ACCURACY,
+                        "max number of vertices to use for accuracy computation");
+  std::string output;
+  clopts.attach_option("output", output,
+                       "output directory");
 
   if(!clopts.parse(argc, argv)) {
     dc.cout() << "Error in parsing command line arguments." << std::endl;
     return EXIT_FAILURE;
   }
-
-  // Enable gather caching in the engine
-  clopts.get_engine_args().set_option("use_cache", USE_DELTA_CACHE);
-
-  if (ITERATIONS) {
-    // make sure this is the synchronous engine
-    dc.cout() << "--iterations set. Forcing Synchronous engine, and running "
-              << "for " << ITERATIONS << " iterations." << std::endl;
-    clopts.get_engine_args().set_option("type", "synchronous");
-    clopts.get_engine_args().set_option("max_iterations", ITERATIONS);
-    clopts.get_engine_args().set_option("sched_allv", true);
+  
+  std::string pagerank_prefix;
+  std::string history_prefix;
+  std::string features_fname;
+  std::string timing_fname;
+  if (!output.empty()) {
+    pagerank_prefix = output + "/pagerank";
+    history_prefix = output + "/history";
+    features_fname = output + "/features.csv";
+    timing_fname = output + "/timing.tsv";
+    boost::filesystem::create_directories(output);
   }
+
+  clopts.get_engine_args().set_option("use_cache", false);
 
   // Build the graph ----------------------------------------------------------
+  timer.start("graph loading");
   graph_type graph(dc, clopts);
-  if(powerlaw > 0) { // make a synthetic graph
-    dc.cout() << "Loading synthetic Powerlaw graph." << std::endl;
-    graph.load_synthetic_powerlaw(powerlaw, false, 2.1, 100000000);
-  }
-  else if (!graph_dir.empty()) { // Load the graph from a file
-    dc.cout() << "Loading graph in format: "<< format << std::endl;
-    graph.load_format(graph_dir, format);
-  }
-  else {
-    dc.cout() << "graph or powerlaw option must be specified" << std::endl;
-    clopts.print_description();
-    return 0;
-  }
+  dc.cout() << "Loading graph in format: " << format << std::endl;
+  graph.load_format(graph_dir, format);
   // must call finalize before querying the graph
   graph.finalize();
   dc.cout() << "#vertices: " << graph.num_vertices()
             << " #edges:" << graph.num_edges() << std::endl;
+  dc.cout() << "loaded graph in " << timer.finish("graph loading") << "s" << std::endl;
   
   // load the true pagerank values if provided
   typedef std::pair<unsigned long, double> pagerank_pair;
@@ -571,6 +560,7 @@ int main(int argc, char** argv) {
   graph.transform_vertices(init_vertex);
 
   // Running The Engine -------------------------------------------------------
+  timer.start("engine");
   graphlab::omni_engine<pagerank> engine(dc, graph, exec_type, clopts);
   engine.add_vertex_aggregator<feature_aggregator>("feature_calculation",
                                                    feature_aggregator::map,
@@ -582,11 +572,12 @@ int main(int argc, char** argv) {
   const double runtime = engine.elapsed_seconds();
   dc.cout() << "Finished Running engine in " << runtime
             << " seconds." << std::endl;
+  timer.finish("engine");
 
 
   // Save the final graph -----------------------------------------------------
-  if (!saveprefix.empty()) {
-    graph.save(saveprefix, pagerank_writer(),
+  if (!pagerank_prefix.empty()) {
+    graph.save(pagerank_prefix, pagerank_writer(),
                true,     // gzip
                true,     // save vertices
                false);   // do not save edges
@@ -600,14 +591,22 @@ int main(int argc, char** argv) {
   }
   
   double totalpr = graph.map_reduce_vertices<double>(pagerank_sum);
-  std::cout << "Totalpr = " << totalpr << "\n";
+  dc.cout() << "Totalpr = " << totalpr << "\n";
   
   if (FEATURES_FILE.is_open()) {
     FEATURES_FILE.close();
   }
   
+  dc.cout() << "finalizing MPI..." << std::endl;
+  
   // Tear-down communication layer and quit -----------------------------------
   graphlab::mpi_tools::finalize();
+  
+  std::cout << "execution times:" << std::endl;
+  timer.write_times(std::cout);
+  std::ofstream timing_file(timing_fname.c_str(), std::ios::trunc);
+  timer.write_times(timing_file);
+  timing_file.close();
   return EXIT_SUCCESS;
 } // End of main
 
