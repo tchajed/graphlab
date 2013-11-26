@@ -450,11 +450,14 @@ int main(int argc, char** argv) {
   std::string graph_dir;
   std::string format = "snap";
   std::string exec_type = "synchronous";
+  std::string pagerank_input_prefix;
   clopts.attach_option("graph", graph_dir,
                        "The graph prefix.");
   clopts.add_positional("graph");
-   clopts.attach_option("format", format,
+  clopts.attach_option("format", format,
                         "The graph file format");
+  clopts.attach_option("pagerank_prefix", pagerank_input_prefix,
+                       "input true pageranks");
   clopts.attach_option("engine", exec_type,
                        "The engine type: synchronous or asynchronous");
   clopts.attach_option("tol", TOLERANCE,
@@ -482,6 +485,9 @@ int main(int argc, char** argv) {
     history_prefix = output + "/history";
     features_fname = output + "/features.csv";
     timing_fname = output + "/timing.tsv";
+    if (pagerank_input_prefix.empty()) {
+      pagerank_input_prefix = pagerank_prefix;
+    }
     boost::filesystem::create_directories(output);
   }
 
@@ -500,10 +506,10 @@ int main(int argc, char** argv) {
   
   // load the true pagerank values if provided
   typedef std::pair<unsigned long, double> pagerank_pair;
-  if (!pagerank_prefix.empty()) {
+  if (!pagerank_input_prefix.empty()) {
     // code adopted from graphlab::load_direct_from_posixfs
     std::string directory_name; std::string original_path(pagerank_prefix);
-    boost::filesystem::path path(pagerank_prefix);
+    boost::filesystem::path path(pagerank_input_prefix);
     std::string search_prefix;
     if (boost::filesystem::is_directory(path)) {
       // if this is a directory
@@ -519,6 +525,9 @@ int main(int argc, char** argv) {
     std::vector<std::string> pagerank_files;
     graphlab::fs_util::list_files_with_prefix(directory_name,
                                               search_prefix, pagerank_files);
+    if (pagerank_files.empty()) {
+      logstream(LOG_WARNING) << "no pagerank files match prefix";
+    }
     for (std::vector<std::string>::const_iterator it =
          pagerank_files.begin(); it !=pagerank_files.end(); ++it) {
       std::string file = *it;
