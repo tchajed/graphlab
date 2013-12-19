@@ -144,4 +144,6 @@ int main(int argc, char** argv) {
                false,    // do not gzip
                true,     // save vertices
                false);   // do not save edges
+  
+   dc.finalize();
 }
