@@ -145,5 +145,8 @@ int main(int argc, char** argv) {
                true,     // save vertices
                false);   // do not save edges
   
-   dc.finalize();
+   dc.cout() << "finalizing MPI..." << std::endl;
+  
+   // Tear-down communication layer and quit -----------------------------------
+   graphlab::mpi_tools::finalize();
 }
