@@ -314,7 +314,7 @@ struct feature_aggregator {
     context.cout() << " rank_e: " << ranking_rmse;
     for (int i = 0; i < agg.num_features; i++) {
       context.cout() << " " + agg.feature_names[i] << ": ";
-      double normalized_feature = sqrt(agg.features[i]) / sqrt(agg.n);
+      double normalized_feature = sqrt(agg.features[i] / agg.n);
       context.cout() << normalized_feature;
     }
     context.cout().unsetf(std::ios::floatfield);
@@ -526,7 +526,7 @@ int main(int argc, char** argv) {
     graphlab::fs_util::list_files_with_prefix(directory_name,
                                               search_prefix, pagerank_files);
     if (pagerank_files.empty()) {
-      logstream(LOG_WARNING) << "no pagerank files match prefix";
+      logstream(LOG_WARNING) << "no pagerank files match prefix" << std::endl;
     }
     for (std::vector<std::string>::const_iterator it =
          pagerank_files.begin(); it !=pagerank_files.end(); ++it) {
