@@ -56,23 +56,14 @@ public:
        float edge_data = edge.source().data();
        float vertex_data = vertex.data();
 
-       std::cout << "current vertex id: " << vertex.id() << " data: " << vertex.data() << "\n";
-
-
-       std::cout << "\tedge vertex id: " << edge.source().id() << " data: " << edge_data << "\n";
        if (edge_data < vertex_data) {
-           std::cout << "returning edge data: " << edge_data << "\n";
            return edge_data;
        } else {
-           std::cout << "returning vertex data: " << vertex_data << "\n";
            return vertex_data;
        }
     }
 
     void apply(icontext_type& context, vertex_type& vertex, const gather_type& smallest) {
-        std::cout << "vertex id: " << vertex.id() << " data: " << vertex.data() << "\n";
-        std::cout << "smallest: " << smallest << "\n";
-
         if (smallest < vertex.data()) {
             vertex.data() = smallest;
             changed = true;
