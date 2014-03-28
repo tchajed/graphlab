@@ -37,30 +37,38 @@ struct diff_vertex {
   
   double set_value(int iteration, double new_value) {
     iteration_values.push_back(iteration_value(iteration, new_value));
-    return get_diff();
+    return get_diff(iteration);
   }
   
   double get_value() const {
     return iteration_values.back().value;
   }
   
-  double get_diff() const {
-    size_t n = iteration_values.size();
-    if (n <= 1) {
+  double get_value(int iteration) const {
+    if (iteration <= 0) {
       return 0.0;
     }
-    return iteration_values[n - 1].value - iteration_values[n - 2].value;
+    double last_value = 0.0;
+    for (std::vector<iteration_value>::const_reverse_iterator rit = iteration_values.rbegin();
+         rit != iteration_values.rend();
+         rit++) {
+      if (rit->iteration > iteration) {
+        last_value = rit->value;
+      } else if (rit->iteration == iteration) {
+        return rit->value;
+      } else {
+        return last_value;
+      }
+    }
+    return last_value;
   }
   
-  double get_second_diff() const {
-    size_t n = iteration_values.size();
-    if (n <= 2) {
-      if (n <= 1) {
-        return 0.0;
-      }
-      return get_diff();
-    }
-    return iteration_values[n - 1].value - 2*iteration_values[n - 2].value + iteration_values[n - 3].value;
+  double get_diff(int iteration) const {
+    return get_value(iteration) - get_value(iteration - 1);
+  }
+  
+  double get_second_diff(int iteration) const {
+    return get_diff(iteration) - get_diff(iteration - 1);
   }
   
   std::vector<double> get_history() const {
@@ -277,9 +285,10 @@ struct feature_aggregator {
       double true_pagerank = final_pageranks.at(vertex.id());
       agg.features[0] = vertex.data().get_value() - true_pagerank;
     }
-    agg.features[1] = vertex.data().get_diff();
-    agg.features[2] = vertex.data().get_value();
-    agg.features[3] = vertex.data().get_second_diff();
+    int iteration = context.iteration();
+    agg.features[1] = vertex.data().get_diff(iteration);
+    agg.features[2] = vertex.data().get_value(iteration);
+    agg.features[3] = vertex.data().get_second_diff(iteration);
     agg.pagerank_list.insert(vertex_pagerank(vertex.id(), vertex.data().get_value()));
     // square features
     for (int i = 0; i < num_features; i++) {
