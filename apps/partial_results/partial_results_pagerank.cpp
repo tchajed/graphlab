@@ -37,7 +37,7 @@ struct diff_vertex {
   
   double set_value(int iteration, double new_value) {
     iteration_values.push_back(iteration_value(iteration, new_value));
-    return get_diff(iteration);
+    return new_value - get_value(iteration - 1);
   }
   
   double get_value() const {

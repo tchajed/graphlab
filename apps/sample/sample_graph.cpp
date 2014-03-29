@@ -18,6 +18,11 @@ void init_vertex(graph_type::vertex_type& vertex) {
   vertex.data() = SELECTED;
 }
 
+// init all edges to selected
+void init_edge(graph_type::edge_type& edge) {
+  edge.data() = SELECTED;
+}
+
 struct graph_writer {
   std::string save_vertex(graph_type::vertex_type v) {
     return "";
@@ -118,17 +123,26 @@ int main(int argc, char** argv) {
   graph.load_format(graph_dir, format);
   graph.finalize();
   graph.transform_vertices(init_vertex);
+  graph.transform_edges(init_edge);
   
   
   num_sampled = graph.num_vertices();
   target_sample = (unsigned int) ((double) num_sampled * prob);
+  dc.cout() << "aiming for " << target_sample << " vertices" << std::endl;
   engine_type engine(dc, graph);
   engine.set_update_function(random_forest_update);
+  double prob_per_sampled = 2.0;
+  unsigned int iteration = 0;
   while (num_sampled > target_sample) {
-    graphlab::vertex_set seed_vset = graph.select(random_vertex_sampler(2.0/(double) num_sampled));
+    graphlab::vertex_set seed_vset = graph.select(random_vertex_sampler(prob_per_sampled/(double) num_sampled));
     dc.cout() << "starting fires at " << graph.vertex_set_size(seed_vset) << " vertices" << std::endl;
     engine.signal_vset(seed_vset);
     engine.start();
+    iteration++;
+    // ramp up sampling to ensure completion with low sampling percentage
+    if (iteration % 10 == 0) {
+      prob_per_sampled += 1.1;
+    }kj
   }
   
   dc.cout() << "sampled " << num_sampled << " vertices" << std::endl;
