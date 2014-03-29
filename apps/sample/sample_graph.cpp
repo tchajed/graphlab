@@ -142,7 +142,7 @@ int main(int argc, char** argv) {
     // ramp up sampling to ensure completion with low sampling percentage
     if (iteration % 10 == 0) {
       prob_per_sampled += 1.1;
-    }kj
+    }
   }
   
   dc.cout() << "sampled " << num_sampled << " vertices" << std::endl;
