@@ -460,6 +460,7 @@ int main(int argc, char** argv) {
   std::string format = "snap";
   std::string exec_type = "synchronous";
   std::string pagerank_input_prefix;
+  bool save_history = false;
   clopts.attach_option("graph", graph_dir,
                        "The graph prefix.");
   clopts.add_positional("graph");
@@ -474,7 +475,9 @@ int main(int argc, char** argv) {
   double feature_period = 0.5;
   clopts.attach_option("feature_period", feature_period,
                        "how frequently to compute features");
-   clopts.attach_option("max_vertices", MAX_VERTICES_ACCURACY,
+  clopts.attach_option("save_history", save_history,
+                       "whether to save the full history");
+  clopts.attach_option("max_vertices", MAX_VERTICES_ACCURACY,
                         "max number of vertices to use for accuracy computation");
   std::string output;
   clopts.attach_option("output", output,
@@ -491,7 +494,9 @@ int main(int argc, char** argv) {
   std::string timing_fname;
   if (!output.empty()) {
     pagerank_prefix = output + "/pagerank";
-    history_prefix = output + "/history";
+    if (save_history) {
+      history_prefix = output + "/history";
+    }
     features_fname = output + "/features.csv";
     timing_fname = output + "/timing.tsv";
     if (pagerank_input_prefix.empty()) {
@@ -598,7 +603,9 @@ int main(int argc, char** argv) {
 
 
   // Save the final graph -----------------------------------------------------
-  if (!pagerank_prefix.empty()) {
+  // skip if prefix is empty or we loaded final pageranks (which are assumed correct)
+  if (!pagerank_prefix.empty() && (final_pageranks.empty() ||
+                                   pagerank_prefix != pagerank_input_prefix)) {
     graph.save(pagerank_prefix, pagerank_writer(),
                true,     // gzip
                true,     // save vertices
