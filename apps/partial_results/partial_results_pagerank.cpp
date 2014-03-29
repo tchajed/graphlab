@@ -603,9 +603,7 @@ int main(int argc, char** argv) {
 
 
   // Save the final graph -----------------------------------------------------
-  // skip if prefix is empty or we loaded final pageranks (which are assumed correct)
-  if (!pagerank_prefix.empty() && (final_pageranks.empty() ||
-                                   pagerank_prefix != pagerank_input_prefix)) {
+  if (!pagerank_prefix.empty()) {
     graph.save(pagerank_prefix, pagerank_writer(),
                true,     // gzip
                true,     // save vertices
