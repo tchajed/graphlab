@@ -98,12 +98,15 @@ int main(int argc, char** argv) {
   std::string graph_dir;
   std::string format;
   std::string output;
+  double rampup = 1.0;
   clopts.attach_option("graph", graph_dir,
                        "the input graph prefix");
   clopts.attach_option("format", format,
                        "the input graph format");
   clopts.attach_option("output", output,
                        "output prefix");
+  clopts.attach_option("rampup", rampup,
+                       "sampling rampup per 10 iterations");
   
   double prob = 0.5;
   clopts.attach_option("prob", prob,
@@ -141,7 +144,7 @@ int main(int argc, char** argv) {
     iteration++;
     // ramp up sampling to ensure completion with low sampling percentage
     if (iteration % 10 == 0) {
-      prob_per_sampled += 1.1;
+      prob_per_sampled += rampup;
     }
   }
   
