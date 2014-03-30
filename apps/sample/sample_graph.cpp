@@ -148,6 +148,7 @@ int main(int argc, char** argv) {
     }
   }
   
+  dc.cout() << "took " << iteration << " iterations" << std::endl;
   dc.cout() << "sampled " << num_sampled << " vertices" << std::endl;
   dc.cout() << "actual/target " << (double) num_sampled / (double) target_sample << std::endl;
   
