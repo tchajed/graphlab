@@ -10,6 +10,8 @@
 #include <graphlab.hpp>
 // #include <graphlab/macros_def.hpp>
 
+#include "vertex_tracking.h"
+
 // Global random reset probability
 double RESET_PROB = 0.15;
 
@@ -18,100 +20,10 @@ double TOLERANCE = 1.0E-2;
 std::ofstream FEATURES_FILE;
 const std::string FEATURES_FILE_DELIMITER = ",";
 
-struct iteration_value : public graphlab::IS_POD_TYPE {
-  int iteration;
-  double value;
-  
-  iteration_value(int iteration_, double value_) : iteration(iteration_), value(value_) {
-  }
-  
-  iteration_value() : iteration(0), value(0.0) {
-  }
-};
-
-struct diff_vertex {
-  std::vector<iteration_value> iteration_values;
-  
-  diff_vertex() {
-  }
-  
-  double set_value(int iteration, double new_value) {
-    iteration_values.push_back(iteration_value(iteration, new_value));
-    return new_value - get_value(iteration - 1);
-  }
-  
-  double get_value() const {
-    return iteration_values.back().value;
-  }
-  
-  double get_value(int iteration) const {
-    if (iteration <= 0) {
-      return 0.0;
-    }
-    double last_value = 0.0;
-    for (std::vector<iteration_value>::const_reverse_iterator rit = iteration_values.rbegin();
-         rit != iteration_values.rend();
-         rit++) {
-      if (rit->iteration > iteration) {
-        last_value = rit->value;
-      } else if (rit->iteration == iteration) {
-        return rit->value;
-      } else {
-        return last_value;
-      }
-    }
-    return last_value;
-  }
-  
-  double get_diff(int iteration) const {
-    return get_value(iteration) - get_value(iteration - 1);
-  }
-  
-  double get_second_diff(int iteration) const {
-    return get_diff(iteration) - get_diff(iteration - 1);
-  }
-  
-  std::vector<double> get_history() const {
-    std::vector<double> pageranks;
-    int last_iteration = -1;
-    for (std::vector<iteration_value>::const_iterator it = iteration_values.begin(); it != iteration_values.end(); ++it) {
-      int iteration = it->iteration;
-      double value = it->value;
-      int repetitions = 1;
-      if (last_iteration != -1) {
-        repetitions = iteration - last_iteration;
-        ASSERT_TRUE(repetitions > 0);
-      }
-      for (int i = 0; i < repetitions; i++) {
-        pageranks.push_back(value);
-      }
-      last_iteration = iteration;
-    }
-    return pageranks;
-  }
-  
-  void save(graphlab::oarchive& oarc) const {
-    oarc << iteration_values.size();
-    for (std::vector<iteration_value>::const_iterator it = iteration_values.begin(); it != iteration_values.end(); ++it) {
-      oarc << *it;
-    }
-  }
-  
-  void load(graphlab::iarchive& iarc) {
-    size_t n;
-    iarc >> n;
-    for (unsigned int i = 0; i < n; i++) {
-      iteration_value v;
-      iarc >> v;
-      iteration_values.push_back(v);
-    }
-  }
-  
-};
 
 
 // The vertex data is just the pagerank value (a double), with some difference tracking
-typedef diff_vertex vertex_data_type;
+typedef diff_vertex<double> vertex_data_type;
 
 // There is no edge data in the pagerank application
 typedef graphlab::empty edge_data_type;
